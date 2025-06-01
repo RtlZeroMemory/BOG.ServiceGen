@@ -1,133 +1,263 @@
-﻿using System.Diagnostics;
+﻿using System.Text;
 using BOG.Microservice.Scaffolder;
 using Spectre.Console;
+using Spectre.Console.Cli;
+using BOG.ServiceGen.Commands;
 
 namespace BOG.ServiceGen
 {
     public static class Program
     {
-        public static void Main(string[] args)
+        public static int Main(string[] args)
         {
-            // Print the ASCII banner once at startup
-            AsciiArt.PrintBanner();
-
-            // Main menu loop
-            while (true)
+            Console.OutputEncoding = Encoding.UTF8;
+            // If the user launched "bogms" with no arguments, show the interactive menu.
+            // Otherwise, delegate to Spectre.Console.Cli so that "bogms new …",
+            // "bogms add-entity …", or "bogms add-controller …" still work.
+            if (args.Length == 0)
             {
-                var choice = AnsiConsole.Prompt(
-                    new SelectionPrompt<string>()
-                        .Title("[green]Select an action[/]:")
-                        .AddChoices(new[]
-                        {
-                            "Create New Microservice",
-                            "About Bank of Georgia",
-                            "Exit"
-                        }));
-
-                switch (choice)
-                {
-                    case "Create New Microservice":
-                        CreateMicroserviceFlow();
-                        break;
-                    case "About Bank of Georgia":
-                        ShowAboutScreen();
-                        break;
-                    case "Exit":
-                        AnsiConsole.MarkupLine("[bold yellow]Exiting...[/]");
-                        return; // quit the application
-                }
+                RunInteractiveMenu();
+                return 0;
+            }
+            else
+            {
+                return RunCliMode(args);
             }
         }
 
-        /// <summary>
-        /// This method orchestrates the prompts for scaffolding a new microservice.
-        /// </summary>
-        private static void CreateMicroserviceFlow()
+        private static int RunCliMode(string[] args)
         {
-            // Clear and re-print banner
+            var app = new CommandApp();
+
+            app.Configure(config =>
+            {
+                config.SetApplicationName("bogms");
+
+                // Register the three subcommands as before
+                config.AddCommand<NewServiceCommand>("new")
+                      .WithDescription("Create a new microservice from scratch");
+
+                config.AddCommand<AddEntityCommand>("add-entity")
+                      .WithDescription("Generate or update entity services for new entities");
+
+                config.AddCommand<AddControllerCommand>("add-controller")
+                      .WithDescription("Scaffold REST controllers for specified entities");
+            });
+
+            return app.Run(args);
+        }
+
+        private static void RunInteractiveMenu()
+        {
+            Console.Clear();
+            AsciiArt.PrintBanner(); // If you had a static AsciiArt class that prints your banner
+
+            while (true)
+            {
+                // 1) Show a selection prompt
+                var choice = AnsiConsole.Prompt(
+                    new SelectionPrompt<string>()
+                        .Title("[bold green]Bank of Georgia MicroService Generator[/]")
+                        .PageSize(10)
+                        .MoreChoicesText("[grey](Move up and down to reveal more options)[/]")
+                        .AddChoices(new[]
+                        {
+                            "🆕 Create New Microservice",
+                            "➕ Add New Entity to Existing Microservice",
+                            "🛠️  Scaffold Controller for Entity(ies)",
+                            "ℹ️  About Bank of Georgia",
+                            "🚪 Exit"
+                        }));
+
+                Console.Clear();
+                switch (choice)
+                {
+                    case "🆕 Create New Microservice":
+                        InteractiveCreateNewService();
+                        break;
+
+                    case "➕ Add New Entity to Existing Microservice":
+                        InteractiveAddEntity();
+                        break;
+
+                    case "🛠️  Scaffold Controller for Entity(ies)":
+                        InteractiveAddController();
+                        break;
+
+                    case "ℹ️  About Bank of Georgia":
+                        ShowAboutScreen();
+                        break;
+
+                    case "🚪 Exit":
+                        AnsiConsole.MarkupLine("[bold yellow]Goodbye![/]");
+                        return;
+                }
+
+                // After each action, pause and then re‐print banner & menu
+                AnsiConsole.MarkupLine("\n[grey]Press any key to return to main menu…[/]");
+                Console.ReadKey(true);
+                Console.Clear();
+                AsciiArt.PrintBanner();
+            }
+        }
+
+        private static void InteractiveCreateNewService()
+        {
             AsciiArt.PrintBanner();
-            AnsiConsole.MarkupLine("[bold aqua]Create New Microservice Wizard[/]\n");
+            AnsiConsole.MarkupLine("\n[bold aqua]Create New Microservice Wizard[/]\n");
 
-            // Step 1: Gather user input
+            // 1) Prompt for Microservice Name
             var projectName = AnsiConsole.Ask<string>(
-                "Enter the [green]name of your Microservice[/] (e.g. MyService):");
+                "Enter the [green]name of your Microservice[/] (e.g. Payments):");
 
+            // 2) Prompt for Target Directory (default = current directory)
             var solutionDirectory = AnsiConsole.Ask<string>(
-                "Enter the [green]solution directory[/] (default = current directory):",
+                "Enter the [green]solution directory[/] (default = current folder):",
                 Directory.GetCurrentDirectory());
 
-            // Step 2: Choose DB provider
+            // 3) DB Provider choice
             var dbProvider = AnsiConsole.Prompt(
                 new SelectionPrompt<string>()
-                    .Title("[green]Select a DB provider[/]:")
-                    .AddChoices(new[] { "postgresql", "sqlserver", "oracle" })
-            );
+                    .Title("[green]Select DB provider[/]:")
+                    .AddChoices(new[] { "postgresql", "sqlserver", "oracle" }));
 
-            // Step 3: Additional features
-            var enableDocker = AnsiConsole.Confirm("[green]Include Dockerfile (and docker-compose)?[/]", true);
-            var enableTests = AnsiConsole.Confirm("[green]Include a test project?[/]", true);
-            var enableSerilog = AnsiConsole.Confirm("[green]Use Serilog for logging?[/]", true);
+            // 4) Confirm flags
+            var enableDocker  = AnsiConsole.Confirm("[green]Include Dockerfiles?[/]", true);
+            var enableTests   = AnsiConsole.Confirm("[green]Include a test project?[/]", true);
+            var enableSerilog = AnsiConsole.Confirm("[green]Use Serilog?[/]", true);
+            var generateSvcs  = AnsiConsole.Confirm("[green]Generate Entity Services?[/]", false);
 
-            // Step 4: Summarize user choices in a nice table
-            var summaryTable = new Table()
-                .Border(TableBorder.Rounded)
-                .AddColumn("[yellow]Setting[/]")
-                .AddColumn("[yellow]Value[/]");
+            // 5) Summary table
+            var tbl = new Table().Border(TableBorder.Rounded)
+                                .AddColumn("[yellow]Setting[/]")
+                                .AddColumn("[yellow]Value[/]");
 
-            summaryTable.AddRow("Microservice Name", projectName);
-            summaryTable.AddRow("Target Directory", solutionDirectory);
-            summaryTable.AddRow("DB Provider", dbProvider);
-            summaryTable.AddRow("Docker", enableDocker.ToString());
-            summaryTable.AddRow("Tests", enableTests.ToString());
-            summaryTable.AddRow("Serilog", enableSerilog.ToString());
+            tbl.AddRow("Microservice Name", projectName);
+            tbl.AddRow("Target Dir", solutionDirectory);
+            tbl.AddRow("DB Provider", dbProvider);
+            tbl.AddRow("Docker", enableDocker.ToString());
+            tbl.AddRow("Tests", enableTests.ToString());
+            tbl.AddRow("Serilog", enableSerilog.ToString());
+            tbl.AddRow("GenSvcs", generateSvcs.ToString());
 
-            AnsiConsole.Write(summaryTable);
+            AnsiConsole.Write(tbl);
 
-            // Step 5: Run dotnet new to scaffold
-            var targetPath = Path.Combine(solutionDirectory, projectName);
-            Directory.CreateDirectory(targetPath);
-
-            var arguments = $"new bogms --output \"{targetPath}\" --dbProvider {dbProvider} --name {projectName} --force";
-
-            AnsiConsole.MarkupLine($"\n[dim]Running command:[/] [yellow]{arguments}[/]");
-            var psi = new ProcessStartInfo
+            // 6) Build settings object to pass into NewServiceCommand
+            var settings = new NewServiceSettings
             {
-                FileName = "dotnet",
-                Arguments = arguments,
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
+                ServiceName      = projectName,
+                OutputDirectory  = solutionDirectory,
+                DbProvider       = dbProvider,
+                IncludeDocker    = enableDocker,
+                IncludeTests     = enableTests,
+                UseSerilog       = enableSerilog,
+                GenerateServices = generateSvcs
             };
 
-            using var proc = Process.Start(psi);
-            proc.WaitForExit();
+            // 7) Execute the command (passing null as CommandContext is OK)
+            var cmd = new NewServiceCommand();
+            var exitCode = cmd.Execute(null!, settings);
 
-            // Step 6: Post-process. E.g. add Docker, tests, Serilog, etc.
-            if (enableDocker)
-            {
-                EnableDockerSupport(targetPath);
-            }
-            if (enableTests)
-            {
-                AddTestProject(targetPath, projectName);
-            }
-            if (enableSerilog)
-            {
-                EnsureSerilogConfiguration(targetPath);
-            }
+            if (exitCode == 0)
+                AnsiConsole.MarkupLine("\n[bold green]Microservice created successfully![/]");
+            else
+                AnsiConsole.MarkupLine("\n[bold red]Failed to create microservice.[/]");
+        }
 
-            AnsiConsole.MarkupLine("\n[bold green]Scaffolding completed successfully![/]");
-            AnsiConsole.MarkupLine("[grey]Press any key to return to main menu...[/]");
-            Console.ReadKey(true);
-
-            // Re-print banner before returning to main menu
-            AnsiConsole.Clear();
+        private static void InteractiveAddEntity()
+        {
             AsciiArt.PrintBanner();
+            AnsiConsole.MarkupLine("\n[bold aqua]Add New Entity Wizard[/]\n");
+
+            // 1) Prompt for the existing microservice root
+            var projectRoot = AnsiConsole.Ask<string>(
+                "Enter the [green]path to your microservice root[/] (where the .sln lives):",
+                Directory.GetCurrentDirectory());
+
+            // 2) Prompt for DB Provider (the same you used when you ran "new")
+            var dbProvider = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[green]Select DB provider (used previously)[/]:")
+                    .AddChoices(new[] { "postgresql", "sqlserver", "oracle" }));
+
+            // 3) Show summary
+            var tbl = new Table().Border(TableBorder.Rounded)
+                                .AddColumn("[yellow]Setting[/]")
+                                .AddColumn("[yellow]Value[/]");
+            tbl.AddRow("Microservice Root", projectRoot);
+            tbl.AddRow("DB Provider", dbProvider);
+            AnsiConsole.Write(tbl);
+
+            // 4) Ask to proceed
+            if (!AnsiConsole.Confirm("[green]Proceed with generating new entities?[/]", true))
+            {
+                AnsiConsole.MarkupLine("[yellow]Aborted entity generation.[/]");
+                return;
+            }
+
+            // 5) Execute AddEntityCommand
+            var settings = new AddEntitySettings
+            {
+                ProjectRoot = projectRoot,
+                DbProvider  = dbProvider
+            };
+
+            var cmd = new AddEntityCommand();
+            var exitCode = cmd.Execute(null!, settings);
+
+            if (exitCode == 0)
+                AnsiConsole.MarkupLine("\n[bold green]Entity generation complete![/]");
+            else
+                AnsiConsole.MarkupLine("\n[bold red]Failed to generate entities.[/]");
+        }
+
+        private static void InteractiveAddController()
+        {
+            AsciiArt.PrintBanner();
+            AnsiConsole.MarkupLine("\n[bold aqua]Scaffold Controller Wizard[/]\n");
+
+            // 1) Prompt for the microservice root
+            var projectRoot = AnsiConsole.Ask<string>(
+                "Enter the [green]path to your microservice root[/] (where the .sln lives):",
+                Directory.GetCurrentDirectory());
+
+            // 2) Prompt for one or more entity names (comma-separated)
+            var entityNames = AnsiConsole.Ask<string>(
+                "Enter comma-separated [green]entity names[/] (e.g. Customer,Order):");
+
+            // 3) Summary
+            var tbl = new Table().Border(TableBorder.Rounded)
+                                .AddColumn("[yellow]Setting[/]")
+                                .AddColumn("[yellow]Value[/]");
+            tbl.AddRow("Microservice Root", projectRoot);
+            tbl.AddRow("Entities", entityNames);
+            AnsiConsole.Write(tbl);
+
+            // 4) Ask to proceed
+            if (!AnsiConsole.Confirm("[green]Proceed with scaffolding controller(s)?[/]", true))
+            {
+                AnsiConsole.MarkupLine("[yellow]Aborted controller generation.[/]");
+                return;
+            }
+
+            // 5) Execute AddControllerCommand
+            var settings = new AddControllerSettings
+            {
+                ProjectRoot = projectRoot,
+                EntityNames = entityNames
+            };
+
+            var cmd = new AddControllerCommand();
+            var exitCode = cmd.Execute(null!, settings);
+
+            if (exitCode == 0)
+                AnsiConsole.MarkupLine("\n[bold green]Controller scaffolding complete![/]");
+            else
+                AnsiConsole.MarkupLine("\n[bold red]Failed to scaffold controllers.[/]");
         }
 
         private static void ShowAboutScreen()
         {
-            AnsiConsole.Clear();
             AsciiArt.PrintBanner();
 
             var panelText = new Panel(@"
@@ -141,99 +271,9 @@ and communities across Georgia.
 ");
             panelText.Header("About Bank of Georgia");
             panelText.Border = BoxBorder.Double;
-            panelText.Padding = new Padding(1,1);
+            panelText.Padding = new Padding(1, 1);
 
             AnsiConsole.Write(panelText);
-
-            AnsiConsole.MarkupLine("[grey]Press any key to return to the main menu...[/]");
-            Console.ReadKey(true);
-
-            // Clear and re-print banner
-            AnsiConsole.Clear();
-            AsciiArt.PrintBanner();
-        }
-
-        private static void EnableDockerSupport(string targetPath)
-        {
-            var dockerFilePath = Path.Combine(targetPath, "Dockerfile");
-            if (!File.Exists(dockerFilePath))
-            {
-                File.WriteAllText(dockerFilePath, @"FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
-WORKDIR /app
-EXPOSE 80
-COPY . .
-ENTRYPOINT [""dotnet"", ""BOG.MyMicroservice.API.dll""]");
-            }
-
-            var composePath = Path.Combine(targetPath, "docker-compose.yml");
-            if (!File.Exists(composePath))
-            {
-                File.WriteAllText(composePath, @"version: '3.8'
-services:
-  bogmymicroservice:
-    build: .
-    ports:
-      - ""8080:80""
-    depends_on:
-      - db
-  db:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-    ports:
-      - ""5432:5432""");
-            }
-        }
-
-        private static void AddTestProject(string targetPath, string projectName)
-        {
-            var testDir = Path.Combine(targetPath, $"{projectName}.Tests");
-            Directory.CreateDirectory(testDir);
-
-            var testProjPath = Path.Combine(testDir, $"{projectName}.Tests.csproj");
-            if (!File.Exists(testProjPath))
-            {
-                File.WriteAllText(testProjPath, $@"<Project Sdk=""Microsoft.NET.Sdk"">
-  <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
-  </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include=""MSTest.TestAdapter"" Version=""3.0.0"" />
-    <PackageReference Include=""MSTest.TestFramework"" Version=""3.0.0"" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include=""..\\BOG.MyMicroservice.API\\BOG.MyMicroservice.API.csproj"" />
-    <ProjectReference Include=""..\\BOG.MyMicroservice.Application\\BOG.MyMicroservice.Application.csproj"" />
-    <ProjectReference Include=""..\\BOG.MyMicroservice.Domain\\BOG.MyMicroservice.Domain.csproj"" />
-    <ProjectReference Include=""..\\BOG.MyMicroservice.Infrastructure\\BOG.MyMicroservice.Infrastructure.csproj"" />
-  </ItemGroup>
-</Project>");
-            }
-
-            var testExample = Path.Combine(testDir, "SampleTests.cs");
-            if (!File.Exists(testExample))
-            {
-                File.WriteAllText(testExample, @"using Microsoft.VisualStudio.TestTools.UnitTesting;
-
-namespace " + projectName + @".Tests
-{
-    [TestClass]
-    public class SampleTests
-    {
-        [TestMethod]
-        public void BasicTest()
-        {
-            Assert.AreEqual(2, 1+1);
-        }
-    }
-}");
-            }
-        }
-
-        private static void EnsureSerilogConfiguration(string targetPath)
-        {
-            // Placeholder for adding or adjusting Serilog config if needed
         }
     }
 }
